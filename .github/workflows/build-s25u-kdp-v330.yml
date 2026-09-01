@@ -1,0 +1,41 @@
+name: Build S25U KDP module (v3.3.0 experiment)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-ko:
+    name: Build android15-6.6 kernelsu.ko (samsung kdp)
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/ylarod/ddk-min:android15-6.6-20260828
+      options: --privileged
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Build kernelsu.ko
+        run: |
+          git config --global --add safe.directory /__w/KernelSU/KernelSU
+          cd kernel
+          echo "=== Building kernelsu.ko for android15-6.6 (samsung kdp/rkp/defex) ==="
+          CONFIG_KSU=m \
+          CONFIG_KSU_SAMSUNG_KDP=y \
+          CONFIG_KSU_SAMSUNG_RKP=y \
+          CONFIG_KSU_SAMSUNG_DEFEX=y \
+          CC=clang make -j$(nproc)
+          echo "=== modinfo ==="
+          modinfo ./kernelsu.ko || true
+          mkdir -p "$GITHUB_WORKSPACE/out"
+          cp kernelsu.ko "$GITHUB_WORKSPACE/out/android15-6.6_kernelsu-kdp-v330.ko"
+          cp kernelsu.ko "$GITHUB_WORKSPACE/out/android15-6.6_kernelsu-kdp-v330-stripped.ko"
+          llvm-strip -d "$GITHUB_WORKSPACE/out/android15-6.6_kernelsu-kdp-v330-stripped.ko"
+          ls -la "$GITHUB_WORKSPACE/out"
+
+      - name: Upload kernelsu.ko artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: android15-6.6-kernelsu-kdp-v330
+          path: out/*.ko
