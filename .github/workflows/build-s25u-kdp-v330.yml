@@ -1,7 +1,11 @@
-name: Build S25U KDP module (v3.3.0 experiment)
+name: Build S25U KDP module (v3.3.0, version pinned to official v3.3.0)
 
 on:
   workflow_dispatch:
+
+env:
+  # Match the official KernelSU v3.3.0 manager (versionCode 32601)
+  KSU_VERSION: 32601
 
 jobs:
   build-ko:
@@ -25,9 +29,12 @@ jobs:
           CONFIG_KSU_SAMSUNG_KDP=y \
           CONFIG_KSU_SAMSUNG_RKP=y \
           CONFIG_KSU_SAMSUNG_DEFEX=y \
+          KSU_VERSION_OVERRIDE=$KSU_VERSION \
           CC=clang make -j$(nproc)
           echo "=== modinfo ==="
           modinfo ./kernelsu.ko || true
+          echo "=== version check ==="
+          modinfo -F version ./kernelsu.ko
           mkdir -p "$GITHUB_WORKSPACE/out"
           cp kernelsu.ko "$GITHUB_WORKSPACE/out/android15-6.6_kernelsu-kdp-v330.ko"
           cp kernelsu.ko "$GITHUB_WORKSPACE/out/android15-6.6_kernelsu-kdp-v330-stripped.ko"
@@ -39,3 +46,55 @@ jobs:
         with:
           name: android15-6.6-kernelsu-kdp-v330
           path: out/*.ko
+
+  build-ksud:
+    name: Build ksud (aarch64, embeds 32601 ko)
+    needs: build-ko
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download kernelsu.ko artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: android15-6.6-kernelsu-kdp-v330
+          path: ko-artifact
+
+      - name: Embed ko into ksud assets
+        run: |
+          cp ko-artifact/android15-6.6_kernelsu-kdp-v330-stripped.ko \
+            userspace/ksud/bin/aarch64/android15-6.6_kernelsu.ko
+
+      - name: Setup rustup
+        run: |
+          rustup update stable
+          rustup target add aarch64-linux-android
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: userspace/ksud
+          cache-targets: false
+
+      - uses: nttld/setup-ndk@v1
+        id: setup-ndk
+        with:
+          ndk-version: r29
+
+      - name: Build ksud
+        env:
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+          KSU_VERSION_CODE: ${{ env.KSU_VERSION }}
+          KSU_VERSION_NAME: 3.3.0
+        run: |
+          source .github/scripts/setup-rust-build.sh aarch64-linux-android 26
+          cargo build --target aarch64-linux-android --release --manifest-path ./userspace/ksud/Cargo.toml
+          cp target/aarch64-linux-android/release/ksud "$GITHUB_WORKSPACE/ksud-s25u-kdp-32601"
+
+      - name: Upload ksud artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ksud-s25u-kdp-32601
+          path: ksud-s25u-kdp-32601
