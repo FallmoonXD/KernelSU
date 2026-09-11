@@ -87,6 +87,10 @@ static int reboot_handler_pre(struct kprobe *p, struct pt_regs *regs)
         struct ksu_install_fd_tw *tw;
         unsigned long arg4 = (unsigned long)PT_REGS_SYSCALL_PARM4(real_regs);
 
+        // Do not expose the driver fd as a fingerprinting oracle to untrusted apps.
+        if (!allowed_for_driver())
+            return 0;
+
         tw = kzalloc(sizeof(*tw), GFP_ATOMIC);
         if (!tw)
             return 0;
